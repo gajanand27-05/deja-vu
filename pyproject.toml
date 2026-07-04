@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deja"
+version = "0.1.0"
+description = "A coding mentor that remembers you — built on Cognee for the WeMakeDevs hackathon."
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+license = { text = "MIT" }
+authors = [{ name = "Gajanand", email = "gajanandvd2005@gmail.com" }]
+keywords = ["cognee", "memory", "knowledge-graph", "ai", "coding-mentor"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "cognee>=0.1.30",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+capture = [
+    "playwright>=1.44",
+]
+
+[project.scripts]
+deja = "deja.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/gajanand27-05/deja-vu"
+Issues = "https://github.com/gajanand27-05/deja-vu/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deja"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

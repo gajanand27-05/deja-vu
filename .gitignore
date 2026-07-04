@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Cognee local data (embedded DBs, caches)
+.cognee/
+cognee_data/
+*.db
+*.sqlite
+*.sqlite3
+lancedb/
+kuzu_db/
+data/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Demo capture output (regenerated per rehearsal)
+captures/
+
+# Project context for agent collaboration (local only, not shipped)
+CLAUDE.md
