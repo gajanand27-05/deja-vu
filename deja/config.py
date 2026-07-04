@@ -30,6 +30,10 @@ class Settings:
     def has_llm_key(self) -> bool:
         return bool(self.llm_api_key)
 
+    @property
+    def snapshot_path(self) -> Path:
+        return self.data_dir / "ui_snapshot.json"
+
 
 def load_settings() -> Settings:
     load_dotenv(REPO_ROOT / ".env", override=False)

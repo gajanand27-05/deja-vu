@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>déjà — memory graph</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+    }
+    #topbar {
+      padding: 12px 20px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      border-bottom: 1px solid #1e293b;
+    }
+    #topbar h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+    #topbar small {
+      color: #94a3b8;
+    }
+    #legend {
+      margin-left: auto;
+      font-size: 12px;
+      color: #cbd5e1;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    #legend .swatch {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+    #legend .line {
+      display: inline-block;
+      width: 14px;
+      height: 3px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+    #graph {
+      height: calc(100vh - 56px);
+      width: 100vw;
+    }
+    #status {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      font-size: 11px;
+      color: #64748b;
+      background: rgba(15, 23, 42, 0.7);
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid #1e293b;
+    }
+  </style>
+</head>
+<body>
+  <div id="topbar">
+    <h1>déjà — memory graph</h1>
+    <small>live view of remember / improve / memify / forget</small>
+    <div id="legend">
+      <span><span class="swatch" style="background:#a78bfa"></span>Learner</span>
+      <span><span class="swatch" style="background:#60a5fa"></span>Concept</span>
+      <span><span class="swatch" style="background:#34d399"></span>Skill</span>
+      <span><span class="swatch" style="background:#94a3b8"></span>Session</span>
+      <span><span class="swatch" style="background:#f87171"></span>Mistake</span>
+      <span><span class="line" style="background:#ec4899"></span>SAME_FAMILY_AS</span>
+      <span><span class="line" style="background:#38bdf8;border-top:1px dashed #38bdf8"></span>RELATED_TO</span>
+    </div>
+  </div>
+  <div id="graph"></div>
+  <div id="status">refreshing every 2s…</div>
+
+  <script>
+    const container = document.getElementById("graph");
+    const statusEl = document.getElementById("status");
+    let network = null;
+    let nodesDS = new vis.DataSet([]);
+    let edgesDS = new vis.DataSet([]);
+    let seenEdgeIds = new Set();
+    let seenNodeIds = new Set();
+
+    const options = {
+      nodes: {
+        shape: "dot",
+        font: { color: "#e2e8f0", size: 12, face: "ui-sans-serif" },
+        borderWidth: 1,
+        color: { border: "#0f172a" },
+      },
+      edges: {
+        font: { color: "#94a3b8", size: 9, strokeWidth: 0 },
+        smooth: { type: "continuous" },
+      },
+      physics: {
+        solver: "forceAtlas2Based",
+        forceAtlas2Based: {
+          gravitationalConstant: -60,
+          springLength: 130,
+          avoidOverlap: 0.35,
+        },
+        stabilization: { iterations: 250 },
+      },
+      interaction: { hover: true, tooltipDelay: 120, zoomView: true },
+    };
+
+    async function fetchGraph() {
+      try {
+        const r = await fetch("/api/graph");
+        const data = await r.json();
+        applyGraph(data);
+        statusEl.textContent =
+          `${data.nodes.length} nodes • ${data.edges.length} edges — ${new Date().toLocaleTimeString()}`;
+      } catch (e) {
+        statusEl.textContent = "fetch failed: " + e.message;
+      }
+    }
+
+    function applyGraph(data) {
+      const newNodeIds = new Set();
+      const newEdgeIds = new Set();
+
+      data.nodes.forEach((n) => {
+        newNodeIds.add(n.id);
+        if (nodesDS.get(n.id)) {
+          nodesDS.update(n);
+        } else {
+          nodesDS.add(n);
+          // brief flash — new node
+          setTimeout(() => nodesDS.update({ id: n.id }), 100);
+        }
+      });
+      // remove stale nodes (pruned by forget)
+      nodesDS.getIds().forEach((id) => {
+        if (!newNodeIds.has(id)) nodesDS.remove(id);
+      });
+
+      data.edges.forEach((e) => {
+        newEdgeIds.add(e.id);
+        const existing = edgesDS.get(e.id);
+        if (existing) {
+          edgesDS.update(e);
+        } else {
+          // Fresh edge — if it's SAME_FAMILY_AS, flash it for the memify beat.
+          const flash =
+            e.relationship_name === "SAME_FAMILY_AS" && seenEdgeIds.size > 0;
+          edgesDS.add(e);
+          if (flash) {
+            const orig = e.color?.color || "#ec4899";
+            edgesDS.update({
+              id: e.id,
+              color: { color: "#fbbf24" },
+              width: 8,
+            });
+            setTimeout(() => {
+              edgesDS.update({
+                id: e.id,
+                color: { color: orig },
+                width: 4,
+              });
+            }, 1600);
+          }
+        }
+      });
+      edgesDS.getIds().forEach((id) => {
+        if (!newEdgeIds.has(id)) edgesDS.remove(id);
+      });
+
+      seenEdgeIds = newEdgeIds;
+      seenNodeIds = newNodeIds;
+
+      if (!network) {
+        network = new vis.Network(
+          container,
+          { nodes: nodesDS, edges: edgesDS },
+          options,
+        );
+      }
+    }
+
+    fetchGraph();
+    setInterval(fetchGraph, 2000);
+  </script>
+</body>
+</html>

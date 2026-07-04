@@ -205,7 +205,7 @@ def _explicit_edges(
     return edges
 
 
-async def seed(wipe_first: bool = True) -> dict:
+async def seed(wipe_first: bool = True, snapshot_path=None) -> dict:
     """Run the seed. Returns a summary dict for the CLI to print."""
     await graph_store.ensure_setup()
     if wipe_first:
@@ -217,6 +217,9 @@ async def seed(wipe_first: bool = True) -> dict:
 
     edges = _explicit_edges(learner, concepts, skills, sessions, mistakes)
     await graph_store.add_edges(edges)
+
+    if snapshot_path is not None:
+        await graph_store.export_snapshot_to_file(snapshot_path)
 
     return {
         "learner": learner.name,

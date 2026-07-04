@@ -64,11 +64,14 @@ def doctor() -> None:
 @app.command()
 def seed() -> None:
     """Produce the demo BEFORE state (spec §6)."""
-    _bootstrap()
+    settings = load_settings()
+    prepare_cognee_env(settings.data_dir)
     from deja.commands.seed_cmd import seed as run_seed
 
     with console.status("[cyan]seeding graph…[/cyan]", spinner="dots"):
-        summary = asyncio.run(run_seed(wipe_first=True))
+        summary = asyncio.run(
+            run_seed(wipe_first=True, snapshot_path=settings.snapshot_path)
+        )
 
     tbl = Table(title="seed complete — BEFORE state", show_header=True, header_style="bold")
     tbl.add_column("field")
@@ -133,8 +136,18 @@ def chat(
     from deja.commands.chat_cmd import apply_feedback, coach_on_topic
     from deja.models.graph import Feedback
 
+    settings = load_settings()
+    prepare_cognee_env(settings.data_dir)
+
+    async def _run() -> object:
+        from deja.commands.chat_cmd import coach_on_topic as _coach
+        result = await _coach(topic, question)
+        from deja.store.graph_store import export_snapshot_to_file
+        await export_snapshot_to_file(settings.snapshot_path)
+        return result
+
     with console.status("[cyan]coaching…[/cyan]", spinner="dots"):
-        turn = asyncio.run(coach_on_topic(topic, question))
+        turn = asyncio.run(_run())
 
     console.print(
         Panel(
@@ -153,7 +166,13 @@ def chat(
     if fb is Feedback.NONE:
         return
 
-    changes = asyncio.run(apply_feedback(turn, fb))
+    async def _run_fb() -> dict:
+        result = await apply_feedback(turn, fb)
+        from deja.store.graph_store import export_snapshot_to_file
+        await export_snapshot_to_file(settings.snapshot_path)
+        return result
+
+    changes = asyncio.run(_run_fb())
     if changes:
         tbl = Table(
             title=f"improve → {fb.value}",
@@ -170,11 +189,18 @@ def chat(
 @app.command()
 def memify() -> None:
     """Re-organize the graph — the headline moment (Scene 3)."""
-    _bootstrap()
-    from deja.commands.memify_cmd import run_memify
+    settings = load_settings()
+    prepare_cognee_env(settings.data_dir)
+
+    async def _run_memify() -> object:
+        from deja.commands.memify_cmd import run_memify as _rm
+        diff = await _rm()
+        from deja.store.graph_store import export_snapshot_to_file
+        await export_snapshot_to_file(settings.snapshot_path)
+        return diff
 
     with console.status("[magenta]memifying…[/magenta]", spinner="dots"):
-        diff = asyncio.run(run_memify())
+        diff = asyncio.run(_run_memify())
 
     if diff.is_empty:
         console.print(
@@ -235,11 +261,18 @@ def forget(
     ),
 ) -> None:
     """Decay mastered skills + prune deprecated concepts (Scene 4)."""
-    _bootstrap()
-    from deja.commands.forget_cmd import run_forget
+    settings = load_settings()
+    prepare_cognee_env(settings.data_dir)
+
+    async def _run_forget() -> object:
+        from deja.commands.forget_cmd import run_forget as _rf
+        diff = await _rf(force_topic=topic)
+        from deja.store.graph_store import export_snapshot_to_file
+        await export_snapshot_to_file(settings.snapshot_path)
+        return diff
 
     with console.status("[yellow]forgetting…[/yellow]", spinner="dots"):
-        diff = asyncio.run(run_forget(force_topic=topic))
+        diff = asyncio.run(_run_forget())
 
     if diff.is_empty:
         console.print(
@@ -280,15 +313,43 @@ def forget(
 
 
 @app.command()
-def ui() -> None:
-    """Serve the live graph viewer (Phase 6)."""
-    _stub("ui", "Phase 6")
+def ui(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8765, "--port"),
+) -> None:
+    """Serve the live graph viewer at http://HOST:PORT/."""
+    _bootstrap()
+    import uvicorn
+
+    from deja.ui.server import create_app
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]déjà graph viewer[/bold cyan] → http://{host}:{port}/\n"
+            "Run `deja memify` in another terminal to watch the SAME_FAMILY_AS edge appear.",
+            border_style="cyan",
+        )
+    )
+    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
 
 
 @app.command()
-def capture() -> None:
-    """Write before/after PNG fallback captures (Phase 6)."""
-    _stub("capture", "Phase 6")
+def capture(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8765, "--port"),
+) -> None:
+    """Write BEFORE and AFTER PNGs for the Scene 3 fallback."""
+    _bootstrap()
+    from deja.commands.capture_cmd import capture_before_and_after
+
+    before, after = capture_before_and_after(host=host, port=port)
+    console.print(
+        Panel.fit(
+            f"BEFORE → {before}\nAFTER  → {after}",
+            title="capture complete",
+            border_style="green",
+        )
+    )
 
 
 if __name__ == "__main__":

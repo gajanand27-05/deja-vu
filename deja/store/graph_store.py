@@ -9,7 +9,9 @@ cognee.remember() with our custom graph_model in Phase 3.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -172,6 +174,23 @@ async def update_node_properties(node_id: UUID | str, updates: dict[str, Any]) -
         {"id": node_id_str, "props": json.dumps(props)},
     )
     return True
+
+
+async def export_snapshot_to_file(path: Path) -> None:
+    """Write the graph as a UI-ready JSON payload.
+
+    Ladybug (the default embedded graph store) is single-writer, so the UI
+    server can't concurrently hold the DB while ``deja memify`` runs. We solve
+    it by having every mutation command flush a snapshot file; the server
+    reads from that file instead of talking to the DB. Trade-off: UI shows
+    the graph as of the last mutation, but it polls every 2s so live demo
+    transitions still land.
+    """
+    from deja.ui.graph_api import build_graph_payload
+
+    payload = await build_graph_payload()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 async def get_snapshot_indexes() -> tuple[dict[str, list[dict]], dict[str, dict]]:
