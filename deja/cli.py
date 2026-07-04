@@ -91,8 +91,20 @@ def seed() -> None:
 
 @app.command()
 def start() -> None:
-    """Cold open — recall who you are (Phase 2, Scene 1)."""
-    _stub("start", "Phase 2")
+    """Cold open — recall who you are (spec §5, Scene 1)."""
+    _bootstrap()
+    from deja.commands.start_cmd import build_cold_open, render_cold_open
+
+    with console.status("[cyan]recalling…[/cyan]", spinner="dots"):
+        cold = asyncio.run(build_cold_open())
+
+    console.print(
+        Panel.fit(
+            render_cold_open(cold),
+            title=f"deja — {cold.learner_name}",
+            border_style="cyan",
+        )
+    )
 
 
 @app.command()
