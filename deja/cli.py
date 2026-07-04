@@ -226,9 +226,57 @@ def memify() -> None:
 
 
 @app.command()
-def forget() -> None:
-    """Decay mastered skills + prune deprecated concepts (Phase 5, Scene 4)."""
-    _stub("forget", "Phase 5")
+def forget(
+    topic: str = typer.Option(
+        None,
+        "--topic",
+        "-t",
+        help="Force-decay a specific Concept's Skill (e.g. --topic recursion for Scene 4).",
+    ),
+) -> None:
+    """Decay mastered skills + prune deprecated concepts (Scene 4)."""
+    _bootstrap()
+    from deja.commands.forget_cmd import run_forget
+
+    with console.status("[yellow]forgetting…[/yellow]", spinner="dots"):
+        diff = asyncio.run(run_forget(force_topic=topic))
+
+    if diff.is_empty:
+        console.print(
+            Panel.fit(
+                "Nothing to forget — no stale Skills, no deprecated Concepts.",
+                title="forget",
+                border_style="yellow",
+            )
+        )
+        return
+
+    if diff.decayed_skills:
+        tbl = Table(
+            title="[bold yellow]decayed (soft) — dropping from active recall[/bold yellow]",
+            show_header=True,
+            header_style="bold",
+        )
+        tbl.add_column("concept")
+        tbl.add_column("weight")
+        for cref, (old, new) in diff.decayed_skills.items():
+            tbl.add_row(cref, f"{old:.2f} → {new:.2f}")
+        console.print(tbl)
+
+    if diff.pruned_concepts:
+        tbl = Table(
+            title="[bold red]pruned (hard) — deprecated concepts removed[/bold red]",
+            show_header=True,
+            header_style="bold",
+        )
+        tbl.add_column("concept")
+        for c in diff.pruned_concepts:
+            tbl.add_row(c)
+        console.print(tbl)
+        if diff.pruned_skills:
+            console.print(
+                f"  [dim]…and {len(diff.pruned_skills)} orphan Skill(s) pruned with them.[/dim]"
+            )
 
 
 @app.command()
