@@ -169,8 +169,60 @@ def chat(
 
 @app.command()
 def memify() -> None:
-    """Re-organize the graph — the headline moment (Phase 4, Scene 3)."""
-    _stub("memify", "Phase 4")
+    """Re-organize the graph — the headline moment (Scene 3)."""
+    _bootstrap()
+    from deja.commands.memify_cmd import run_memify
+
+    with console.status("[magenta]memifying…[/magenta]", spinner="dots"):
+        diff = asyncio.run(run_memify())
+
+    if diff.is_empty:
+        console.print(
+            Panel.fit(
+                "Nothing to re-organize — the graph is already coherent.",
+                title="memify",
+                border_style="yellow",
+            )
+        )
+        return
+
+    if diff.same_family_edges:
+        tbl = Table(
+            title="[bold magenta]SAME_FAMILY_AS — new cross-topic links[/bold magenta]",
+            show_header=True,
+            header_style="bold",
+        )
+        tbl.add_column("mistake A")
+        tbl.add_column("concept A")
+        tbl.add_column("mistake B")
+        tbl.add_column("concept B")
+        for a_key, b_key, c_a, c_b in diff.same_family_edges:
+            tbl.add_row(a_key, c_a, b_key, c_b)
+        console.print(tbl)
+
+    if diff.related_concept_edges:
+        tbl = Table(
+            title="RELATED_TO — inferred concept relations",
+            show_header=True,
+            header_style="bold",
+        )
+        tbl.add_column("concept A")
+        tbl.add_column("concept B")
+        for a, b in diff.related_concept_edges:
+            tbl.add_row(a, b)
+        console.print(tbl)
+
+    if diff.reweighted_skills:
+        tbl = Table(
+            title="skills reinforced by family links",
+            show_header=True,
+            header_style="bold",
+        )
+        tbl.add_column("concept")
+        tbl.add_column("weight")
+        for cref, (old, new) in diff.reweighted_skills.items():
+            tbl.add_row(cref, f"{old:.2f} → {new:.2f}")
+        console.print(tbl)
 
 
 @app.command()
