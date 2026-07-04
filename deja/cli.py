@@ -1,17 +1,21 @@
 """Déjà CLI surface.
 
-Commands are stubbed at Phase 0 and implemented phase-by-phase. Each stub prints
-the phase that owns it so an early user run is self-documenting.
+Commands are stubbed and implemented phase-by-phase. Each stub prints the phase
+that owns it so an early user run is self-documenting.
 """
 
 from __future__ import annotations
 
+import asyncio
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from deja import __version__
 from deja.config import load_settings
+from deja.store import prepare_cognee_env
 
 
 app = typer.Typer(
@@ -21,6 +25,12 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _bootstrap() -> None:
+    """Run at the top of every command that touches cognee."""
+    settings = load_settings()
+    prepare_cognee_env(settings.data_dir)
 
 
 def _stub(command: str, phase: str) -> None:
@@ -53,8 +63,30 @@ def doctor() -> None:
 
 @app.command()
 def seed() -> None:
-    """Produce the demo BEFORE state (Phase 1)."""
-    _stub("seed", "Phase 1")
+    """Produce the demo BEFORE state (spec §6)."""
+    _bootstrap()
+    from deja.commands.seed_cmd import seed as run_seed
+
+    with console.status("[cyan]seeding graph…[/cyan]", spinner="dots"):
+        summary = asyncio.run(run_seed(wipe_first=True))
+
+    tbl = Table(title="seed complete — BEFORE state", show_header=True, header_style="bold")
+    tbl.add_column("field")
+    tbl.add_column("value")
+    tbl.add_row("learner", summary["learner"])
+    tbl.add_row("concepts", ", ".join(summary["concepts"]))
+    tbl.add_row(
+        "skills",
+        "\n".join(f"{k}: {v}" for k, v in summary["skills"].items()),
+    )
+    tbl.add_row("sessions", ", ".join(summary["sessions"]))
+    tbl.add_row("mistakes", ", ".join(summary["mistakes"]))
+    tbl.add_row("edges_added", str(summary["edges_added"]))
+    tbl.add_row(
+        "SAME_FAMILY_AS edges",
+        f"[green]{summary['same_family_as_edges']}[/green] (invariant — memify creates these)",
+    )
+    console.print(tbl)
 
 
 @app.command()

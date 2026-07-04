@@ -1,1 +1,5 @@
-"""Cognee integration layer. Populated in Phase 1+."""
+"""Cognee integration layer."""
+
+from deja.store.env import prepare_cognee_env
+
+__all__ = ["prepare_cognee_env"]
