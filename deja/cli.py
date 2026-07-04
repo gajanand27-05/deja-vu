@@ -108,9 +108,63 @@ def start() -> None:
 
 
 @app.command()
-def chat() -> None:
-    """Coaching loop with thumbs-up feedback (Phase 3, Scene 2)."""
-    _stub("chat", "Phase 3")
+def chat(
+    topic: str = typer.Option(
+        "async error handling",
+        "--topic",
+        "-t",
+        help="Concept name to coach on. Default matches the demo Scene 2 setup.",
+    ),
+    question: str = typer.Option(
+        "My async task keeps mutating a shared list.",
+        "--question",
+        "-q",
+        help="The learner's question or code paste, kept short for the demo.",
+    ),
+    feedback: str = typer.Option(
+        "up",
+        "--feedback",
+        "-f",
+        help="Simulated thumbs feedback for this turn: up | down | none.",
+    ),
+) -> None:
+    """Coaching loop with thumbs-up feedback (Scene 2)."""
+    _bootstrap()
+    from deja.commands.chat_cmd import apply_feedback, coach_on_topic
+    from deja.models.graph import Feedback
+
+    with console.status("[cyan]coaching…[/cyan]", spinner="dots"):
+        turn = asyncio.run(coach_on_topic(topic, question))
+
+    console.print(
+        Panel(
+            turn.message,
+            title=f"deja — coaching on {turn.topic_concept}",
+            border_style="cyan",
+        )
+    )
+
+    try:
+        fb = Feedback(feedback.lower())
+    except ValueError:
+        console.print(f"[red]unknown feedback '{feedback}'; skipping improve.[/red]")
+        return
+
+    if fb is Feedback.NONE:
+        return
+
+    changes = asyncio.run(apply_feedback(turn, fb))
+    if changes:
+        tbl = Table(
+            title=f"improve → {fb.value}",
+            show_header=True,
+            header_style="bold",
+        )
+        tbl.add_column("skill node")
+        tbl.add_column("new mastery_weight")
+        for node_id, w in changes.items():
+            tbl.add_row(node_id[:8] + "…", f"{w:.2f}")
+        console.print(tbl)
 
 
 @app.command()

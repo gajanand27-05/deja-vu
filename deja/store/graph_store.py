@@ -131,6 +131,66 @@ async def has_edge(source_id: UUID | str, target_id: UUID | str, rel_name: str) 
     return bool(result)
 
 
+async def get_node(node_id: UUID | str) -> dict[str, Any] | None:
+    engine = await get_graph_engine()
+    node = await engine.get_node(str(node_id))
+    if node is None:
+        return None
+    return _to_plain(node)
+
+
+async def update_node_properties(node_id: UUID | str, updates: dict[str, Any]) -> bool:
+    """Merge ``updates`` into a node's stored custom properties.
+
+    Ladybug stores our custom fields (mastery_weight, confidence, status, ...) in
+    a JSON blob column named ``properties``. To mutate, read the row, merge,
+    write. Core fields (id, name, type) live outside that blob and are left
+    alone here.
+
+    Returns True on success, False if the node wasn't found.
+    """
+    import json
+
+    engine = await get_graph_engine()
+    node_id_str = str(node_id)
+    row = await engine.query(
+        "MATCH (n:Node) WHERE n.id = $id RETURN n.properties AS props",
+        {"id": node_id_str},
+    )
+    if not row:
+        return False
+    props_json = row[0][0] if isinstance(row[0], (tuple, list)) else row[0]
+    try:
+        props = json.loads(props_json) if props_json else {}
+    except (TypeError, ValueError):
+        props = {}
+
+    props.update({k: _plain_value(v) for k, v in updates.items()})
+
+    await engine.query(
+        "MATCH (n:Node) WHERE n.id = $id SET n.properties = $props",
+        {"id": node_id_str, "props": json.dumps(props)},
+    )
+    return True
+
+
+async def get_snapshot_indexes() -> tuple[dict[str, list[dict]], dict[str, dict]]:
+    """Return (nodes-by-type, node-by-id) for quick in-Python graph work.
+
+    Convenience for command implementations that want the whole graph in memory
+    (small at demo scale). Callers should treat the dicts as read-only.
+    """
+    nodes, _edges = await graph_snapshot()
+    by_type: dict[str, list[dict]] = {}
+    by_id: dict[str, dict] = {}
+    for n in nodes:
+        props = n.get("properties", {})
+        t = props.get("type") or "unknown"
+        by_type.setdefault(t, []).append(n)
+        by_id[str(n["id"])] = n
+    return by_type, by_id
+
+
 def _to_plain(obj: Any) -> dict[str, Any]:
     """Best-effort conversion of node/edge property blobs to a serializable dict."""
     if isinstance(obj, dict):

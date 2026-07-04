@@ -1,0 +1,231 @@
+"""``deja chat`` — Scene 2 coaching loop with thumbs-up feedback.
+
+Design goals from the demo script:
+
+- The response must reach across history: when the user asks about async, the
+  mentor pulls a Mistake from a *different* Concept that shares the same
+  ``failure_class``. That's the "graph reasoning, not keyword match" beat.
+- Thumbs-up feeds ``improve`` against the *specific* nodes used to produce the
+  answer, not a global counter (spec §7 gotcha).
+
+The prose is generated deterministically from graph facts so the demo is
+rehearsable without an LLM call. If ``LLM_API_KEY`` is set we still write the
+Session via the graph so ``recall`` and ``memify`` see it — the LLM's role is
+prose, not truth.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+from deja.models.graph import (
+    Concept,
+    Feedback,
+    Learner,
+    Mistake,
+    Rel,
+    Session,
+    SessionOutcome,
+    Skill,
+)
+from deja.store import graph_store
+
+
+IMPROVE_WEIGHT_STEP = 0.1
+IMPROVE_CONFIDENCE_STEP = 0.1
+DECAY_WEIGHT_STEP = 0.05  # for thumbs-down (Phase 5 also uses decay, distinct threshold)
+
+
+@dataclass
+class CoachingTurn:
+    """Everything produced by a single chat turn.
+
+    ``used_node_ids`` is the closure of nodes that produced the answer — this
+    is what a thumbs-up must reinforce (spec §7). It includes the topic Skill
+    and every Mistake we pulled in as cross-topic evidence.
+    """
+
+    topic_concept: str
+    topic_skill_id: str | None
+    related_mistake_ids: list[str] = field(default_factory=list)
+    used_node_ids: list[str] = field(default_factory=list)
+    message: str = ""
+    session_id: str | None = None
+
+
+async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
+    """Produce a coaching turn on ``topic``. Persists a Session node.
+
+    ``topic`` must match a Concept.name (or the Skill.concept_ref that points
+    at one). We keep the pipeline pure-graph so behavior is testable without
+    an LLM.
+    """
+    by_type, by_id = await graph_store.get_snapshot_indexes()
+
+    # ------------------------------------------------------------------
+    # Locate the topic's Concept and Skill.
+    # ------------------------------------------------------------------
+    concept = _find_by_prop(by_type.get(Concept.__name__, []), "name", topic)
+    if concept is None:
+        return CoachingTurn(
+            topic_concept=topic,
+            topic_skill_id=None,
+            message=f"I don't know '{topic}' yet — try `deja seed`.",
+        )
+
+    skill = _find_by_prop(by_type.get(Skill.__name__, []), "concept_ref", topic)
+
+    # ------------------------------------------------------------------
+    # Cross-topic recall: Mistakes on OTHER Concepts sharing failure_class with
+    # any Mistake this Concept has seen. This is the demo's Scene 2 beat.
+    # ------------------------------------------------------------------
+    all_mistakes = by_type.get(Mistake.__name__, [])
+    my_mistakes = [m for m in all_mistakes if _p(m, "concept_ref") == topic]
+    my_failure_classes = {_p(m, "failure_class") for m in my_mistakes if _p(m, "failure_class")}
+
+    related = [
+        m for m in all_mistakes
+        if _p(m, "concept_ref") != topic
+        and _p(m, "failure_class") in my_failure_classes
+    ]
+
+    # ------------------------------------------------------------------
+    # Compose the response (deterministic prose).
+    # ------------------------------------------------------------------
+    lines: list[str] = []
+    if related:
+        rm = related[0]
+        rm_concept = _p(rm, "concept_ref")
+        rm_class = _p(rm, "failure_class")
+        rm_desc = _p(rm, "description") or ""
+        lines.append(
+            f"This looks like the same shape as the {rm_concept} bug you hit "
+            f"before — {rm_desc.rstrip('.')}. "
+            f"Both are {rm_class}: state you thought was fresh is actually "
+            f"shared across calls or tasks."
+        )
+        lines.append(
+            f"Fix pattern: never let a mutable object outlive one logical "
+            f"scope. For {topic}, that means either (a) create a new "
+            f"collection per task, or (b) guard mutations with an "
+            f"``asyncio.Lock`` when sharing is deliberate."
+        )
+    else:
+        lines.append(
+            f"Let's work through the {topic} question. Tell me the exact error "
+            f"you're seeing and I'll walk you through it."
+        )
+
+    # ------------------------------------------------------------------
+    # Persist a Session — this is what ``remember`` writes and what
+    # ``recall`` will surface later. Also records which nodes we drew on.
+    # ------------------------------------------------------------------
+    session_key = f"session-live-{topic}-{datetime.now(timezone.utc).timestamp():.0f}"
+    session = Session(
+        session_key=session_key,
+        summary=(user_question or f"Live coaching turn on {topic}."),
+        timestamp_iso=datetime.now(timezone.utc).isoformat(),
+        outcome=SessionOutcome.MIXED,
+        feedback=Feedback.NONE,
+    )
+    await graph_store.add_nodes([session])
+    edges: list[tuple[str, str, str, dict]] = [
+        (str(session.id), str(concept["id"]), Rel.TOUCHED, {}),
+    ]
+    for rm in related:
+        # Preserve the cross-topic evidence as a Session-level TOUCHED edge to
+        # that Mistake's Concept, so ``recall`` sees the connection.
+        rm_concept_name = _p(rm, "concept_ref")
+        rm_concept_node = _find_by_prop(
+            by_type.get(Concept.__name__, []), "name", rm_concept_name
+        )
+        if rm_concept_node:
+            edges.append(
+                (str(session.id), str(rm_concept_node["id"]), Rel.TOUCHED, {})
+            )
+    await graph_store.add_edges(edges)
+
+    used = []
+    if skill:
+        used.append(str(skill["id"]))
+    used.extend(str(m["id"]) for m in related)
+    used.append(str(session.id))
+
+    return CoachingTurn(
+        topic_concept=topic,
+        topic_skill_id=str(skill["id"]) if skill else None,
+        related_mistake_ids=[str(m["id"]) for m in related],
+        used_node_ids=used,
+        message="\n\n".join(lines),
+        session_id=str(session.id),
+    )
+
+
+async def apply_feedback(turn: CoachingTurn, thumbs: Feedback) -> dict[str, float]:
+    """Improve/decay the nodes that produced the answer (spec §7 gotcha).
+
+    Thumbs-up bumps mastery_weight + confidence on the topic Skill and
+    confidence on cross-topic Mistakes (evidence that the link helped).
+    Thumbs-down decays the Skill lightly — a signal, not a punishment.
+
+    Returns a mapping ``node_id -> new_mastery_weight`` for the caller to show.
+    """
+    if thumbs is Feedback.NONE:
+        return {}
+
+    step_w = IMPROVE_WEIGHT_STEP if thumbs is Feedback.UP else -DECAY_WEIGHT_STEP
+    step_c = IMPROVE_CONFIDENCE_STEP if thumbs is Feedback.UP else 0.0
+
+    changes: dict[str, float] = {}
+
+    if turn.topic_skill_id:
+        skill_node = await graph_store.get_node(turn.topic_skill_id)
+        if skill_node:
+            props = skill_node if "mastery_weight" in skill_node else skill_node.get("properties", {})
+            old_w = float(props.get("mastery_weight", 0.5))
+            old_c = float(props.get("confidence", 0.5))
+            new_w = _clamp(old_w + step_w)
+            new_c = _clamp(old_c + step_c)
+            await graph_store.update_node_properties(
+                turn.topic_skill_id,
+                {"mastery_weight": new_w, "confidence": new_c},
+            )
+            changes[turn.topic_skill_id] = new_w
+
+    # Reinforce the *evidence* — Mistakes that helped the answer.
+    for mid in turn.related_mistake_ids:
+        node = await graph_store.get_node(mid)
+        if node:
+            props = node if "concept_ref" in node else node.get("properties", {})
+            old_c = float(props.get("confidence", props.get("importance_weight", 0.5)))
+            new_c = _clamp(old_c + step_c)
+            await graph_store.update_node_properties(mid, {"confidence": new_c})
+
+    # Record the feedback on the Session so ``recall`` can later prefer sessions
+    # that landed for the learner.
+    if turn.session_id:
+        await graph_store.update_node_properties(
+            turn.session_id, {"feedback": thumbs.value}
+        )
+
+    return changes
+
+
+def _find_by_prop(nodes: list[dict], key: str, value: str) -> dict | None:
+    for n in nodes:
+        props = n.get("properties", {})
+        if props.get(key) == value:
+            return n
+    return None
+
+
+def _p(node: dict | None, key: str, default=None):
+    if not node:
+        return default
+    props = node.get("properties", node)
+    return props.get(key, default)
+
+
+def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, x))
