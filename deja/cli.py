@@ -28,7 +28,12 @@ console = Console()
 
 
 def _bootstrap() -> None:
-    """Run at the top of every command that touches cognee."""
+    """Run at the top of every command that touches cognee.
+
+    Retained for legacy call sites; per-command paths now call
+    prepare_cognee_env() directly with the resolved settings so they can
+    thread ``settings.snapshot_path`` through to the store.
+    """
     settings = load_settings()
     prepare_cognee_env(settings.data_dir)
 
