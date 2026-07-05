@@ -24,7 +24,3 @@ The Python codebase — CLI, Cognee graph models, command implementations, the F
 - Recorded the demo video and submitted the project.
 
 All commits are authored by the human participant. AI-generated output was treated as a draft to be reviewed, tested, and accepted — not shipped unverified.
-
-## Note
-
-If any additional AI tools were used during the hackathon, add them to the "Tools used" list above before submitting, so this disclosure remains complete and accurate.
