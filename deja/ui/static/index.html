@@ -69,6 +69,29 @@
       border-radius: 6px;
       border: 1px solid #1e293b;
     }
+    /* Floating caption anchored above a freshly-inferred edge — frames the
+       memify beat for a 3-second glance the same way a spoken line frames
+       it for judges you're not standing in front of. */
+    #memify-caption {
+      position: absolute;
+      transform: translate(-50%, -140%);
+      pointer-events: none;
+      background: linear-gradient(180deg, #fbbf24 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.02em;
+      text-shadow: 0 0 12px rgba(236, 72, 153, 0.35);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 350ms ease-out;
+      z-index: 3;
+    }
+    #memify-caption.visible {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -86,16 +109,21 @@
     </div>
   </div>
   <div id="graph"></div>
+  <div id="memify-caption">cross-topic family inferred</div>
   <div id="status">refreshing every 2s…</div>
 
   <script>
     const container = document.getElementById("graph");
     const statusEl = document.getElementById("status");
+    const captionEl = document.getElementById("memify-caption");
     let network = null;
     let nodesDS = new vis.DataSet([]);
     let edgesDS = new vis.DataSet([]);
     let seenEdgeIds = new Set();
     let seenNodeIds = new Set();
+    let captionTicker = null;      // rAF handle for keeping the caption pinned during pan/zoom
+    let captionHideTimer = null;   // fade-out timer
+    let releaseTimer = null;       // camera-release timer
 
     const options = {
       nodes: {
@@ -157,7 +185,9 @@
         if (existing) {
           edgesDS.update(e);
         } else {
-          // Fresh edge — if it's SAME_FAMILY_AS, flash it for the memify beat.
+          // Fresh edge — if it's SAME_FAMILY_AS, flash it for the memify beat
+          // and dress the moment (camera pan + fade caption) so a 3-second
+          // glance can't miss it.
           const flash =
             e.relationship_name === "SAME_FAMILY_AS" && seenEdgeIds.size > 0;
           edgesDS.add(e);
@@ -175,6 +205,9 @@
                 width: 4,
               });
             }, 1600);
+            // Wait one physics tick so the endpoints have positions before
+            // we ask vis.js for them, then dress the beat.
+            setTimeout(() => dressMemifyBeat(e.from, e.to), 250);
           }
         }
       });
@@ -192,6 +225,64 @@
           options,
         );
       }
+    }
+
+    /**
+     * Camera pans/zooms to the midpoint of the two Mistake endpoints on
+     * the new SAME_FAMILY_AS edge, holds ~2s, then fits the whole graph
+     * back. A floating caption sits above the midpoint the whole time and
+     * fades out just before release.
+     *
+     * Called from applyGraph() on the fresh edge. Safe against overlapping
+     * memify runs — it cancels any in-flight camera-release / caption
+     * timers before starting a new dress cycle.
+     */
+    function dressMemifyBeat(fromId, toId) {
+      if (!network) return;
+      const positions = network.getPositions([fromId, toId]);
+      const p1 = positions[fromId];
+      const p2 = positions[toId];
+      if (!p1 || !p2) return;
+      const midpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+      // Cancel any prior beat still winding down so we don't get a stuck
+      // caption or a fight over the camera.
+      if (releaseTimer) clearTimeout(releaseTimer);
+      if (captionHideTimer) clearTimeout(captionHideTimer);
+      if (captionTicker) cancelAnimationFrame(captionTicker);
+
+      // Pan/zoom toward the new edge. Scale kept modest so surrounding
+      // nodes stay visible — the story is "graph re-organized," not
+      // "cropped to a duo."
+      network.moveTo({
+        position: midpoint,
+        scale: 1.35,
+        animation: { duration: 1200, easingFunction: "easeInOutQuad" },
+      });
+
+      // Keep the caption pinned above the midpoint through the pan.
+      const updateCaption = () => {
+        const dom = network.canvasToDOM(midpoint);
+        captionEl.style.left = dom.x + "px";
+        captionEl.style.top = dom.y + "px";
+        captionTicker = requestAnimationFrame(updateCaption);
+      };
+      updateCaption();
+      captionEl.classList.add("visible");
+
+      captionHideTimer = setTimeout(() => {
+        captionEl.classList.remove("visible");
+      }, 2000);
+
+      releaseTimer = setTimeout(() => {
+        if (captionTicker) {
+          cancelAnimationFrame(captionTicker);
+          captionTicker = null;
+        }
+        network.fit({
+          animation: { duration: 1000, easingFunction: "easeInOutQuad" },
+        });
+      }, 2500);
     }
 
     fetchGraph();
