@@ -1,153 +1,133 @@
-# Déjà — completion report
+# Déjà, completion report
 
-Handed off before the final push. Everything below is verifiable from a clean clone.
+Everything below is verifiable from a clean clone.
 
-## 1 · What was built
+## 1. What was built
 
-A CLI coding mentor that remembers the learner across sessions, built on Cognee 1.2.2's memory graph. The product exists to prove — end to end, in ~4 minutes — that all four Cognee memory verbs (`remember` / `recall` / `improve` / `memify` / `forget`) can carry real product weight, with the graph re-organization ("memify") as the headline moment.
+A CLI coding mentor that remembers the learner across sessions, built on Cognee's memory graph. It proves, end to end, that Cognee's memory verbs (remember, recall, improve, memify, forget) can carry real product weight, with the graph re-organization ("memify") as the headline moment. It runs fully local on Cognee's embedded stack (SQLite, LanceDB, Kuzu), with an optional Cognee Cloud path.
+
+On top of the core verb flow it also ships:
+
+- `deja ask "<question>"`, which routes recall through Cognee's own `cognee.search` over the populated graph.
+- `deja compare`, which answers the same question without memory and with the graph side by side (the "context hangover", dramatized).
+- Cross-restart session recall: `deja start` recalls the last real session after the process is killed and reopened.
+- `SearchType.FEEDBACK` on thumbs-up, so improve attaches a score to the exact graph elements that produced the answer.
+- `deja ask --cloud`, which runs the same recall against Cognee Cloud.
 
 Repo: https://github.com/gajanand27-05/deja-vu
 
-## 2 · Cognee verb coverage
+## 2. Cognee verb coverage
 
 | Verb | Where it lives | What it does here |
 |---|---|---|
-| `remember` | `deja seed`, `deja chat` | Writes Learner/Concept/Skill/Session/Mistake DataPoint nodes and every explicit edge from spec §3 (`HAS_SKILL`, `OF_CONCEPT`, `TOUCHED`, `REVEALED`, `INDICATES_GAP_IN`). |
-| `recall` | `deja start`, `deja chat` | Reads the graph snapshot to produce the three cold-open lines from graph state (not hardcoded), and pulls cross-topic Mistake evidence into the coaching turn. |
-| `improve` | `deja chat --feedback up` | Bumps `mastery_weight` (+0.1) and `confidence` (+0.1) on the *specific* Skill and Mistake nodes that produced the answer — not a global counter. |
-| `memify` | `deja memify` | Adds `Mistake —SAME_FAMILY_AS→ Mistake` between Mistakes on *different* Concepts sharing `failure_class`; adds `Concept —RELATED_TO→ Concept` from Session co-occurrence; re-weights involved Skills upward. Idempotent. |
-| `forget` | `deja forget` | Soft: decays mastered Skills that have gone stale (mastery_weight × 0.6, status → decaying). Hard: prunes Concepts with `deprecated=True` along with their orphan Skills. |
+| remember | `deja seed`, `deja chat` | Writes Learner / Concept / Skill / Session / Mistake DataPoint nodes and every explicit edge (HAS_SKILL, OF_CONCEPT, TOUCHED, REVEALED, INDICATES_GAP_IN). |
+| recall | `deja start`, `deja chat`, `deja ask` | Reads graph state for the cold open (three lines, not hardcoded) and recalls the last persisted Session across restarts; coaching pulls cross-topic Mistake evidence; `deja ask` runs a real `cognee.search` (INSIGHTS, then GRAPH_COMPLETION, then SUMMARIES) over the graph. |
+| improve | `deja chat --feedback up` | Bumps mastery_weight and confidence on the specific Skill and Mistake nodes that produced the answer (not a global counter), and additively fires Cognee's `SearchType.FEEDBACK` on that interaction. |
+| memify | `deja memify` | Adds Mistake SAME_FAMILY_AS Mistake between Mistakes on different Concepts sharing failure_class; adds Concept RELATED_TO Concept from Session co-occurrence; re-weights involved Skills upward. Idempotent. |
+| forget | `deja forget` | Soft: decays mastered Skills that have gone stale (mastery_weight x 0.6, status becomes decaying). Hard: prunes Concepts with deprecated=True along with their orphan Skills. |
 
-## 3 · The demo's headline invariant, verified
+## 3. Command surface
 
-From spec §3: the `SAME_FAMILY_AS` edge must not exist in the seed — memify creates it live in Scene 3, or there's nothing to show.
+`seed`, `start`, `chat`, `ask`, `compare`, `memify`, `forget`, `ui`, `doctor`, `capture`, `version`. Each is a Typer subcommand with Rich output. `deja doctor` prints the resolved data dir, learner, LLM config, and key status for a fast sanity check on a fresh machine.
+
+## 4. The demo's headline invariant, verified
+
+The `SAME_FAMILY_AS` edge must not exist in the seed. memify creates it live, or there is nothing to show.
 
 Verified two ways:
 
-1. **Unit tests** (`tests/test_schema_and_seed.py::test_seed_edges_are_explicit_only`, `tests/test_memify.py::test_seed_state_produces_exactly_one_family_edge`): the seed's edge builder never emits `SAME_FAMILY_AS` or `RELATED_TO`, and the memify inference on the seeded Mistake pair produces exactly one family edge.
-2. **End-to-end**: after `deja seed`, the snapshot contains 14 edges with zero `SAME_FAMILY_AS`. After `deja memify`, the snapshot contains 15 edges with exactly one `SAME_FAMILY_AS` linking M1 (mutable-defaults) to M2 (async error handling). Running `deja memify` a second time reports "nothing to re-organize" — idempotent.
+1. Unit tests (`tests/test_schema_and_seed.py::test_seed_edges_are_explicit_only`, `tests/test_memify.py::test_seed_state_produces_exactly_one_family_edge`): the seed's edge builder never emits `SAME_FAMILY_AS` or `RELATED_TO`, and memify inference on the seeded Mistake pair produces exactly one family edge.
+2. End to end: after `deja seed`, the snapshot contains 14 edges with zero `SAME_FAMILY_AS`. After `deja memify`, it contains 15 edges with exactly one `SAME_FAMILY_AS` linking M1 (mutable-defaults) to M2 (async error handling). A second `deja memify` reports "nothing to re-organize" (idempotent).
 
-## 4 · End-to-end demo flow, confirmed
+## 5. End-to-end flow, confirmed
 
 ```
-deja seed     → 14 nodes / 14 edges, 0 SAME_FAMILY_AS
-deja start    → cold open reads recursion (mastered 0.9), mutable-defaults
-                (0.3 + unresolved Mistake), current_focus "async error handling"
-                — all three lines from graph state, none hardcoded
+deja seed     -> 14 nodes / 14 edges, 0 SAME_FAMILY_AS
+deja start    -> cold open reads recursion (mastered 0.9), mutable-defaults
+                 (0.3 + unresolved Mistake), current_focus "async error handling",
+                 plus a recall line for the last persisted session. None hardcoded.
 deja chat --topic "async error handling" --feedback up
-              → mentor references the mutable-defaults Mistake as evidence
-                (same failure_class as M2); async Skill 0.45 → 0.55
-deja memify   → adds M1—SAME_FAMILY_AS—M2; bumps mutable-defaults (0.30 → 0.35)
-                and async (0.55 → 0.60); snapshot 15 edges
+              -> mentor references the mutable-defaults Mistake as evidence
+                 (same failure_class as M2); async Skill 0.45 -> 0.55
+deja ask "why do I keep hitting this?"
+              -> cognee.search over the graph, shown next to the graph-derived answer
+deja compare  -> same question answered without memory vs. with the graph (read-only)
+deja memify   -> adds M1 SAME_FAMILY_AS M2; bumps mutable-defaults (0.30 -> 0.35)
+                 and async (0.55 -> 0.60); snapshot 15 edges
 deja forget --topic recursion
-              → recursion Skill 0.90 → 0.54, status decaying (dimmed in UI);
-                python 2 print statement Concept and its orphan Skill pruned;
-                snapshot 12 nodes / 13 edges
+              -> recursion Skill 0.90 -> 0.54, status decaying (dimmed in UI);
+                 "python 2 print statement" Concept and its orphan Skill pruned
 ```
 
-Every step was verified against a live cognee/Ladybug graph. Confirmations printed above.
+## 6. Cognee integration, honest scope
 
-## 5 · Architecture
+The templated, graph-derived path is the verified default and the recorded-demo path: the cross-topic link falls out of `used_node_ids` with no LLM in the loop, so the "graph reasoning, not LLM guessing" story is provable, not asserted.
 
-- **Language**: Python 3.12 (supports 3.10+).
-- **Memory backend**: Cognee 1.2.2 with embedded Ladybug (default). No servers.
-- **Custom graph model**: Pydantic subclasses of `cognee.infrastructure.engine.DataPoint` with `Annotated[..., Dedup(), Embeddable()]` markers so identity is deterministic and embedding-eligible fields are declared. Concept + Skill kept as separate classes — the "personalized/mutable" story depends on that split (spec §2).
-- **CLI**: Typer + Rich, dark-theme tables for the demo screens.
-- **Graph view**: FastAPI + vis.js (CDN). Nodes sized by `mastery_weight` so weight changes are visible; `SAME_FAMILY_AS` rendered bold magenta and briefly flashed yellow when it first appears.
-- **Concurrency**: Ladybug is single-writer, so the UI can't hold the DB while the CLI mutates. Solved by having every mutation command flush a JSON snapshot to `data/ui_snapshot.json`; the server serves that file, refreshed on a 2s poll. Tested: UI and CLI ran concurrently through the full seed → memify → forget cycle without lock conflicts.
+The `cognee.search`, `SearchType.FEEDBACK`, and `--cloud` calls are real Cognee API calls made best-effort and timeout-guarded. They enrich the output when the installed Cognee version supports them, and fall back to the deterministic local answer otherwise, so the core flow never breaks. `spike_cognee.py` confirms the exact search shape on a target machine.
 
-## 6 · Testing
+## 7. Architecture
 
-`pytest tests/` — **42 tests, all pass**. Coverage highlights:
+- Language: Python 3.12 (supports 3.10 to 3.14).
+- Memory backend: Cognee with the embedded stack (SQLite, LanceDB, Kuzu). No servers required. Optional Cognee Cloud via `deja ask --cloud`.
+- Custom graph model: Pydantic subclasses of `cognee.infrastructure.engine.DataPoint` with `Annotated[..., Dedup(), Embeddable()]` markers, so identity is deterministic and embedding-eligible fields are declared. Concept and Skill are separate classes; the personalized, mutable story depends on that split.
+- CLI: Typer + Rich.
+- Graph view: FastAPI + vis.js. Nodes sized by mastery_weight so weight changes are visible; `SAME_FAMILY_AS` rendered bold magenta and briefly flashed when it first appears.
+- Concurrency: the embedded graph store is single-writer, so the UI cannot hold the DB while the CLI mutates. Every mutating command flushes `data/ui_snapshot.json`; the server serves that file on a 2s poll. UI and CLI run concurrently through the full seed to memify to forget cycle without lock conflicts.
 
-- `test_schema_and_seed.py` (5): schema split, exact seed weights, no inferred edges in seed, every explicit rel type actually used, deterministic learner id.
-- `test_cold_open.py` (7): cold open picks mastered-over-deprecated, picks lowest-weight-unresolved-Mistake, reads current_focus from Learner, mentions all three topics, empty-graph fallback, recalls the most-recent persisted Session (cross-restart proof), omits the recall line when no sessions exist.
-- `test_chat.py` (5): find_by_prop, used-node-ids includes evidence (no global counter), and the with-memory-vs-no-memory composer (cross-topic answer names the other topic, the baseline can't; unknown topic → None; no-evidence answer equals the baseline).
-- `test_memify.py` (7): cross-topic linkage rule, same-topic rejected, different failure_class rejected, idempotence, exact seed shape produces one family edge, RELATED_TO co-occurrence, RELATED_TO idempotence.
-- `test_forget.py` (6): mastered+stale decays, in-progress doesn't decay when stale, recent doesn't decay, already-decaying skipped (idempotent), --topic force decay, deprecated Concept pruned with its orphan Skill.
-- `test_llm_reword.py` (10): dummy-key/empty/failed-call fallbacks, FACTS-block construction, allowed-concept set, and the adversarial hallucination-safety checks (foreign-concept output rejected → templated served).
-- `test_smoke.py` (2): version, help lists all planned commands.
+## 8. Testing
 
-## 7 · File layout (shipped)
+`pytest tests/`: 42 tests, all pass. Coverage highlights:
+
+- `test_schema_and_seed.py`: schema split, exact seed weights, no inferred edges in seed, every explicit rel type used, deterministic learner id.
+- `test_cold_open.py`: cold open picks mastered over deprecated, picks the lowest-weight unresolved Mistake, reads current_focus, mentions all three topics, empty-graph fallback, recalls the most-recent persisted Session (cross-restart proof), omits the recall line when no sessions exist.
+- `test_chat.py`: find_by_prop, used-node-ids includes evidence (no global counter), and the with-memory vs. no-memory composer that powers `deja compare` (cross-topic answer names the other topic; baseline cannot; unknown topic returns None).
+- `test_memify.py`: cross-topic linkage rule, same-topic rejected, different failure_class rejected, idempotence, exact seed shape produces one family edge, RELATED_TO co-occurrence and its idempotence.
+- `test_forget.py`: mastered and stale decays, in-progress does not decay when stale, recent does not decay, already-decaying skipped, `--topic` force decay, deprecated Concept pruned with its orphan Skill.
+- `test_llm_reword.py`: dummy-key / empty / failed-call fallbacks, FACTS-block construction, allowed-concept set, and the adversarial hallucination-safety checks (foreign-concept output rejected, templated served).
+- `test_smoke.py`: version and help list all commands.
+
+## 9. File layout (shipped)
 
 ```
 deja-vu/
-├── README.md                     # user-facing, terse
-├── pyproject.toml                # deja package + [dev] + [capture] extras
-├── .env.example                  # LLM_API_KEY template
-├── .gitignore                    # excludes .venv, data/, captures/, CLAUDE.md
+├── README.md, pyproject.toml, .env.example, LICENSE
 ├── docs/
 │   ├── AI_DISCLOSURE.md          # hackathon rule compliance
-│   ├── DEMO.md                   # 4-min rehearsal walkthrough
 │   └── REPORT.md                 # this file
 ├── deja/
-│   ├── cli.py                    # Typer entry: seed, start, chat, memify,
-│   │                             #             forget, ui, capture, doctor, version
+│   ├── cli.py                    # Typer entry: seed, start, chat, ask, compare,
+│   │                             #   memify, forget, ui, doctor, capture, version
 │   ├── config.py                 # env + settings
-│   ├── models/
-│   │   └── graph.py              # Pydantic DataPoint subclasses + Rel constants
+│   ├── models/graph.py           # Pydantic DataPoint subclasses + Rel constants
 │   ├── store/
 │   │   ├── env.py                # cognee data-root pinning
-│   │   └── graph_store.py        # ensure_setup, wipe, add_nodes/edges,
-│   │                             #  graph_snapshot, update_node_properties,
-│   │                             #  export_snapshot_to_file
+│   │   ├── graph_store.py        # ensure_setup, wipe, add_nodes/edges, snapshot, export
+│   │   ├── search.py             # recall via cognee.search + SearchType.FEEDBACK
+│   │   └── cloud.py              # optional Cognee Cloud connection
 │   ├── commands/
 │   │   ├── seed_cmd.py           # deterministic BEFORE state
-│   │   ├── start_cmd.py          # cold-open recall (three lines from graph)
-│   │   ├── chat_cmd.py           # coaching + cross-topic evidence + improve
+│   │   ├── start_cmd.py          # cold-open recall + cross-restart session recall
+│   │   ├── chat_cmd.py           # coaching + cross-topic evidence + improve + compare
+│   │   ├── ask_cmd.py            # deja ask: cognee.search over the graph
 │   │   ├── memify_cmd.py         # SAME_FAMILY_AS + RELATED_TO + re-weight
 │   │   ├── forget_cmd.py         # decay + prune
-│   │   └── capture_cmd.py        # Playwright before/after PNGs
+│   │   └── capture_cmd.py        # Playwright before/after PNGs (optional)
 │   └── ui/
 │       ├── server.py             # FastAPI serving snapshot JSON
-│       ├── graph_api.py          # node/edge → vis.js payload
-│       └── static/index.html     # vis.js viewer with 2s polling + flash on new edges
-└── tests/
-    ├── test_smoke.py
-    ├── test_schema_and_seed.py
-    ├── test_cold_open.py
-    ├── test_chat.py
-    ├── test_memify.py
-    └── test_forget.py
+│       ├── graph_api.py          # node/edge to vis.js payload
+│       └── static/index.html     # vis.js viewer, 2s poll, flash on new edges
+└── tests/                        # 42 tests (7 modules)
 ```
 
-`CLAUDE.md` is a repo-local design brief kept in the working tree but gitignored on purpose — internal agent context, not a project doc.
+`CLAUDE.md` is a repo-local design brief kept in the working tree but gitignored on purpose. It is internal agent context, not a project doc.
 
-## 8 · Known limitations, risks, and non-goals
+## 10. Known limitations and non-goals
 
-- **Two coaching modes, templated is the default.** The default `deja chat` builds a deterministic response from graph facts — that is the demo's *credibility flex*: the cross-topic link falls out of `used_node_ids` with no LLM in the loop, so the "graph reasoning, not LLM guessing" story is *provable*, not asserted. `deja chat --llm` is an opt-in surface polish: it reworks the same graph facts through an LLM constrained to only rephrase a pre-selected FACTS block, with a post-hoc validator that rejects any output naming a Concept the graph did not authorise. If the validator rejects, or the LLM call fails, the templated draft is served instead — the demo path is uninterruptible. See `deja/commands/llm_reword.py` and the seven hallucination-safety tests in `tests/test_llm_reword.py`.
-- **Single-user demo.** Multi-user access control is turned off (`ENABLE_BACKEND_ACCESS_CONTROL=false`). Not a limitation of Cognee — a scoping choice.
-- **Ladybug single-writer.** Solved for the demo via the snapshot-file pattern. Migrating to Postgres/Neo4j would remove that constraint if scaled beyond one learner.
-- **Playwright capture is optional.** Requires the `[capture]` extra plus `playwright install chromium` (~150 MB). The demo does not depend on it — it's the Scene 3 fallback.
-- **Windows line-endings warnings** from git are expected on Windows (CRLF conversion). No functional impact.
+- Two coaching modes, templated is the default. The default `deja chat` builds a deterministic response from graph facts; that is the credibility flex. `deja chat --llm` is opt-in surface polish that reworks the same graph facts through an LLM constrained to a pre-selected FACTS block, with a post-hoc validator that rejects any output naming a Concept the graph did not authorize. On rejection or LLM failure, the templated draft is served, so the demo path is uninterruptible. See `deja/commands/llm_reword.py` and the ten hallucination-safety tests.
+- Best-effort Cognee calls. `cognee.search`, `SearchType.FEEDBACK`, and `--cloud` are timeout-guarded and fall back to the local graph answer, so an unexpected Cognee version or a slow cloud never stalls the demo.
+- Single-user demo. Multi-user access control is off (`ENABLE_BACKEND_ACCESS_CONTROL=false`). A scoping choice, not a Cognee limitation.
+- Playwright capture is optional. It needs the `[capture]` extra plus `playwright install chromium`. The demo does not depend on it.
 
-## 9 · Rehearsal-lock rules (please observe)
+## 11. Authorship
 
-- Re-run `deja seed` immediately before going on stage. Do not touch the DB between seed and demo.
-- Do not open two `deja` mutation commands concurrently (Ladybug single-writer). UI + one CLI is fine.
-- Do not add `SAME_FAMILY_AS` seeded edges "to make the graph look denser." That kills the memify beat.
-
-## 10 · Commit history
-
-```
-6491b0c  Phase 6 — live graph view + before/after capture
-1d5b9f1  Phase 5 — forget: soft decay + hard prune (Scene 4)
-6f21d30  Phase 4 — memify: the SAME_FAMILY_AS wow moment (Scene 3)
-f1bbb6e  Phase 3 — coaching loop + improve on the exact nodes used (Scene 2)
-2435bd8  Phase 2 — cold open (Scene 1): three greeting lines derived from the graph
-4bebec2  Phase 1 — Schema (Pydantic graph models) + deterministic seed
-87812ea  Phase 0 — Scaffold
-806f67a  Initial commit
-```
-
-Every commit is authored by `gajanand27-05 <gajanandvd2005@gmail.com>` on `main`.
-
-## 11 · What ships to `main` after this report
-
-The final push adds:
-- `docs/DEMO.md` — the rehearsal walkthrough,
-- `docs/REPORT.md` — this report,
-- Updated `docs/AI_DISCLOSURE.md`,
-- A short polish/lint pass if anything shows up during the final `pytest` run.
-
-Nothing else. The functional code has been shipping per-phase all along.
+See `git log` on `main` for the full history. All commits are authored by the team's human participants; AI-generated output was reviewed, tested, and accepted rather than shipped unverified (see `docs/AI_DISCLOSURE.md`).
