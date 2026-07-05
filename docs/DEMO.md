@@ -2,6 +2,8 @@
 
 Runtime target: **~4 min core**, compressible to 3 (see bottom).
 
+> **For the recording take, use [`TELEPROMPTER.md`](TELEPROMPTER.md)** — a 2:45 single-take script with `[SCREEN]` cues and verbatim spoken lines. This file is for rehearsing beats, unpacking timing, and running the fallback plan; the teleprompter is what's on screen during the record.
+
 ## Pre-flight (do NOT skip)
 
 ```bash
