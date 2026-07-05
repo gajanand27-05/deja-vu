@@ -94,6 +94,8 @@ deja memify
 Expected effects visible in the browser within ~2 seconds:
 
 - A new **bold magenta edge** appears between the two Mistake nodes (M1 ↔ M2). The UI flashes it yellow for ~1.5s.
+- The camera pans to the midpoint between M1 and M2 and holds for ~2 seconds, then releases back to the full graph.
+- A **"cross-topic family inferred"** caption fades in above the new edge and fades out just before the camera releases.
 - The async and mutable-defaults Skill nodes get slightly thicker.
 
 CLI shows the table:
@@ -104,9 +106,11 @@ mistake A            concept A                  mistake B            concept B
 M1-default-list…     mutable default arguments  M2-async-shared…     async error handling
 ```
 
-Say:
+Say — **land the differentiator by name**:
 
-> "That's memify. It didn't just store my session — it re-organized the whole graph. It inferred that these two bugs I hit are the same class of mistake and linked them. My memory didn't just get bigger, it got smarter. No other memory approach does this — this is why we built on Cognee's graph instead of plain vector storage."
+> "That's **memify — the verb every other memory system doesn't have.** It didn't just store my session — it re-organized the whole graph. It inferred that these two bugs I hit, from different topics, are the same class of mistake and linked them. My memory didn't just get bigger, it got smarter. This is why we built on Cognee's graph instead of plain vector storage."
+
+The `memify — the verb every other memory system doesn't have` clause is the single highest-value sentence in the whole demo for a Cognee-integration score. Do not paraphrase it. Say it out loud, on that beat, every rehearsal.
 
 **Fallback if live render is flaky:** show the two pre-captured PNGs. Generate them with:
 
@@ -137,7 +141,7 @@ Say:
 
 ## 3-minute compression
 
-If the slot is tight, keep Scene 1 (cold open), Scene 3 (memify), Scene 5 (close). Fold thumbs-up into Scene 1 with a quick `deja chat` call. Cut Scene 4 to a single spoken line — no live action. **Never cut memify.**
+If the slot is tight, keep Scene 1 (cold open), Scene 3 (memify), Scene 5 (close). Fold thumbs-up into Scene 1 with a quick `deja chat` call. Cut Scene 4 to a single spoken line — no live action. **Never cut memify.** The differentiator line ("memify — the verb every other memory system doesn't have") survives every compression.
 
 ## Reset between rehearsals
 
