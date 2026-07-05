@@ -216,6 +216,92 @@ def chat(
 
 
 @app.command()
+def ask(
+    query: str = typer.Argument(
+        ..., help="A natural-language question for your memory graph."
+    ),
+) -> None:
+    """Ask your memory a question — routed through Cognee's own ``cognee.search``.
+
+    Runs a real ``cognee.search`` over the graph (the ``recall`` verb via
+    Cognee's public API) and shows a graph-derived answer alongside it.
+    """
+    _bootstrap()
+    from deja.commands.ask_cmd import ask as run_ask
+
+    with console.status("[cyan]searching memory via cognee.search…[/cyan]", spinner="dots"):
+        res = asyncio.run(run_ask(query))
+
+    console.print(
+        Panel(
+            res.local_answer,
+            title=f"deja — memory answer to “{query}”",
+            border_style="cyan",
+        )
+    )
+
+    o = res.outcome
+    if o.ok:
+        subtitle = f"[green]cognee.search ✓[/green] SearchType.{o.search_type} · {len(o.results)} result(s)"
+        body = "\n".join(f"• {str(r)[:300]}" for r in o.results[:5]) or "(empty)"
+        console.print(
+            Panel(body, title="via Cognee's search API", border_style="green", subtitle=subtitle)
+        )
+    else:
+        tried = ", ".join(o.attempted) or "none"
+        console.print(
+            f"[dim]cognee.search returned nothing (tried: {tried}); showing the "
+            f"graph-derived answer above. Run spike_cognee.py to tune the search path.[/dim]"
+        )
+
+
+@app.command()
+def compare(
+    topic: str = typer.Option(
+        "async error handling", "--topic", "-t", help="Concept name to coach on."
+    ),
+    question: str = typer.Option(
+        "My asyncio.gather tasks keep mutating the same list",
+        "--question",
+        "-q",
+        help="The learner's question.",
+    ),
+) -> None:
+    """Same question, answered WITHOUT memory vs. WITH Déjà's memory graph.
+
+    Dramatizes the 'context hangover': the left mentor has no history, the right
+    one reaches across the learner's graph. Read-only — persists nothing.
+    """
+    _bootstrap()
+    from rich.columns import Columns
+
+    from deja.commands.chat_cmd import compare_answers
+
+    with console.status("[cyan]comparing…[/cyan]", spinner="dots"):
+        no_mem, with_mem, helped = asyncio.run(compare_answers(topic, question))
+
+    left = Panel(
+        no_mem,
+        title="[red]🥴 without memory[/red]",
+        border_style="red",
+        subtitle="generic — every session from scratch",
+    )
+    right = Panel(
+        with_mem,
+        title="[green]🧠 with Déjà's memory[/green]",
+        border_style="green",
+        subtitle="graph-grounded" + (" · cross-topic link" if helped else ""),
+    )
+    console.print(Columns([left, right], equal=True, expand=True))
+    if helped:
+        console.print(
+            "\n[dim]Only the right answer linked this to a mistake from a "
+            "different topic — that connection lives in the memory graph, not "
+            "the prompt.[/dim]"
+        )
+
+
+@app.command()
 def memify() -> None:
     """Re-organize the graph — the headline moment (Scene 3)."""
     settings = load_settings()

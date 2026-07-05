@@ -63,6 +63,21 @@ Say:
 
 Pause for a beat after the greeting lands.
 
+### Persistence proof (optional 15s — the on-theme kill shot)
+
+The first line of the cold open — **"You were last here … — <your last session>"** — is read from the newest persisted `Session` node, not a hardcoded string. To prove the "no context hangover" thesis *across a restart*:
+
+```bash
+deja chat --topic "async error handling" \
+          --question "My asyncio.gather tasks keep mutating the same list"
+# now close the terminal / kill every deja process, reopen a fresh shell — do NOT reseed
+deja start
+```
+
+The cold open now leads with **"You were last here just now — My asyncio.gather tasks keep mutating the same list."** Say:
+
+> "I killed the process. No prompt, no context window — and it still opens on exactly what I was doing. The memory lives on disk in Cognee's graph, not in a chat log. That's the hangover, cured."
+
 ## Scene 2 — live coaching + feedback (1:00–2:00)
 
 **Record on the templated path.** It is the demo default and it is the proof:

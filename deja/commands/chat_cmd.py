@@ -38,6 +38,23 @@ DECAY_WEIGHT_STEP = 0.05  # for thumbs-down (Phase 5 also uses decay, distinct t
 
 
 @dataclass
+class Composed:
+    """The coaching text computed from the graph, before anything is persisted.
+
+    ``with_message`` uses the learner's memory (cross-topic evidence when it
+    exists); ``no_memory_message`` is what the same mentor could say with *zero*
+    history — the honest baseline the ``deja compare`` view sets side by side.
+    """
+
+    concept: dict
+    skill: dict | None
+    related: list[dict]
+    with_message: str
+    no_memory_message: str
+    fix_hint: str
+
+
+@dataclass
 class CoachingTurn:
     """Everything produced by a single chat turn.
 
@@ -69,60 +86,17 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
     """
     by_type, by_id = await graph_store.get_snapshot_indexes()
 
-    # ------------------------------------------------------------------
-    # Locate the topic's Concept and Skill.
-    # ------------------------------------------------------------------
-    concept = _find_by_prop(by_type.get(Concept.__name__, []), "name", topic)
-    if concept is None:
+    composed = _compose_coaching(topic, by_type)
+    if composed is None:
         return CoachingTurn(
             topic_concept=topic,
             topic_skill_id=None,
             message=f"I don't know '{topic}' yet — try `deja seed`.",
         )
-
-    skill = _find_by_prop(by_type.get(Skill.__name__, []), "concept_ref", topic)
-
-    # ------------------------------------------------------------------
-    # Cross-topic recall: Mistakes on OTHER Concepts sharing failure_class with
-    # any Mistake this Concept has seen. This is the demo's Scene 2 beat.
-    # ------------------------------------------------------------------
-    all_mistakes = by_type.get(Mistake.__name__, [])
-    my_mistakes = [m for m in all_mistakes if _p(m, "concept_ref") == topic]
-    my_failure_classes = {_p(m, "failure_class") for m in my_mistakes if _p(m, "failure_class")}
-
-    related = [
-        m for m in all_mistakes
-        if _p(m, "concept_ref") != topic
-        and _p(m, "failure_class") in my_failure_classes
-    ]
-
-    # ------------------------------------------------------------------
-    # Compose the response (deterministic prose).
-    # ------------------------------------------------------------------
-    lines: list[str] = []
-    fix_hint = ""
-    if related:
-        rm = related[0]
-        rm_concept = _p(rm, "concept_ref")
-        rm_class = _p(rm, "failure_class")
-        rm_desc = _p(rm, "description") or ""
-        lines.append(
-            f"This looks like the same shape as the {rm_concept} bug you hit "
-            f"before — {rm_desc.rstrip('.')}. "
-            f"Both are {rm_class}: state you thought was fresh is actually "
-            f"shared across calls or tasks."
-        )
-        fix_hint = (
-            f"never let a mutable object outlive one logical scope — for "
-            f"{topic}, either create a new collection per task, or guard "
-            f"mutations with an ``asyncio.Lock`` when sharing is deliberate"
-        )
-        lines.append(f"Fix pattern: {fix_hint}.")
-    else:
-        lines.append(
-            f"Let's work through the {topic} question. Tell me the exact error "
-            f"you're seeing and I'll walk you through it."
-        )
+    concept = composed.concept
+    skill = composed.skill
+    related = composed.related
+    fix_hint = composed.fix_hint
 
     # ------------------------------------------------------------------
     # Persist a Session — this is what ``remember`` writes and what
@@ -168,9 +142,87 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
             for m in related
         ],
         used_node_ids=used,
-        message="\n\n".join(lines),
+        message=composed.with_message,
         session_id=str(session.id),
         fix_hint=fix_hint,
+    )
+
+
+def _compose_coaching(topic: str, by_type: dict[str, list[dict]]) -> Composed | None:
+    """Pure: build the coaching text from graph state. No persistence, no I/O.
+
+    Returns ``None`` if the topic isn't a known Concept. ``with_message`` reaches
+    across topics (the Scene 2 beat) when a Mistake on another Concept shares a
+    ``failure_class``; ``no_memory_message`` is the same mentor with no history —
+    used by ``deja compare`` to show what the memory graph actually adds.
+    """
+    concept = _find_by_prop(by_type.get(Concept.__name__, []), "name", topic)
+    if concept is None:
+        return None
+
+    skill = _find_by_prop(by_type.get(Skill.__name__, []), "concept_ref", topic)
+
+    all_mistakes = by_type.get(Mistake.__name__, [])
+    my_mistakes = [m for m in all_mistakes if _p(m, "concept_ref") == topic]
+    my_failure_classes = {_p(m, "failure_class") for m in my_mistakes if _p(m, "failure_class")}
+    related = [
+        m for m in all_mistakes
+        if _p(m, "concept_ref") != topic
+        and _p(m, "failure_class") in my_failure_classes
+    ]
+
+    # The baseline: what any mentor says with zero memory of this learner.
+    no_memory_message = (
+        f"Let's work through the {topic} question. Tell me the exact error "
+        f"you're seeing and I'll walk you through it."
+    )
+
+    fix_hint = ""
+    if related:
+        rm = related[0]
+        rm_concept = _p(rm, "concept_ref")
+        rm_class = _p(rm, "failure_class")
+        rm_desc = _p(rm, "description") or ""
+        fix_hint = (
+            f"never let a mutable object outlive one logical scope — for "
+            f"{topic}, either create a new collection per task, or guard "
+            f"mutations with an ``asyncio.Lock`` when sharing is deliberate"
+        )
+        with_message = (
+            f"This looks like the same shape as the {rm_concept} bug you hit "
+            f"before — {rm_desc.rstrip('.')}. "
+            f"Both are {rm_class}: state you thought was fresh is actually "
+            f"shared across calls or tasks."
+            f"\n\nFix pattern: {fix_hint}."
+        )
+    else:
+        with_message = no_memory_message
+
+    return Composed(
+        concept=concept,
+        skill=skill,
+        related=related,
+        with_message=with_message,
+        no_memory_message=no_memory_message,
+        fix_hint=fix_hint,
+    )
+
+
+async def compare_answers(topic: str, question: str) -> tuple[str, str, bool]:
+    """Read-only: return (no_memory_message, with_memory_message, memory_helped).
+
+    Does NOT persist a Session — this is an illustrative view, not a real turn.
+    ``memory_helped`` is True when cross-topic evidence changed the answer.
+    """
+    by_type, _ = await graph_store.get_snapshot_indexes()
+    composed = _compose_coaching(topic, by_type)
+    if composed is None:
+        msg = f"I don't know '{topic}' yet — try `deja seed`."
+        return msg, msg, False
+    return (
+        composed.no_memory_message,
+        composed.with_message,
+        bool(composed.related),
     )
 
 

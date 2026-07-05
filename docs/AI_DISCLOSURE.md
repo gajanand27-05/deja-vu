@@ -19,7 +19,7 @@ The Python codebase — CLI, Cognee graph models, command implementations, the F
 
 - Directed all planning: set goals, chose the track, made scoping and design decisions, and approved or rejected AI proposals.
 - Reviewed all generated code and documentation.
-- Ran and verified the system end to end — the full seed → start → chat → memify → forget flow — and confirmed the test suite (37/37 passing) and the memify seed invariant.
+- Ran and verified the system end to end — the full seed → start → chat → memify → forget flow — and confirmed the test suite (42/42 passing) and the memify seed invariant.
 - Authored the open-source-track issue analysis and interactions on the maintainers' repository.
 - Recorded the demo video and submitted the project.
 
