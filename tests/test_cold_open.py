@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from deja.commands.start_cmd import _derive, render_cold_open
 from deja.models.graph import Concept, Learner, Mistake, Session, Skill, SkillStatus
 
@@ -105,3 +107,45 @@ def test_cold_open_empty_graph_falls_back() -> None:
     cold = _derive([], [])
     text = render_cold_open(cold)
     assert "deja seed" in text
+
+
+def _as_node(dp) -> dict:
+    props = dp.model_dump()
+    props["type"] = type(dp).__name__
+    for k, v in list(props.items()):
+        if hasattr(v, "value"):
+            props[k] = v.value
+    return {"id": str(dp.id), "properties": props}
+
+
+def test_cold_open_recalls_most_recent_session() -> None:
+    """The newest persisted Session drives the 'you were last here' line — the
+    proof that memory survives a restart (the hackathon's whole thesis)."""
+    now = datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc)
+    nodes, _ = _snapshot_from_seed_style()
+    older = Session(
+        session_key="s-old",
+        summary="An older session we should NOT surface.",
+        timestamp_iso=(now - timedelta(days=5)).isoformat(),
+    )
+    newest = Session(
+        session_key="s-new",
+        summary="My asyncio.gather tasks keep mutating the same list",
+        timestamp_iso=(now - timedelta(days=2)).isoformat(),
+    )
+    nodes += [_as_node(older), _as_node(newest)]
+
+    cold = _derive(nodes, [], now=now)
+    assert cold.last_session_summary == "My asyncio.gather tasks keep mutating the same list"
+    assert cold.last_session_when == "2 days ago"
+
+    text = render_cold_open(cold)
+    assert "You were last here 2 days ago" in text
+    assert "asyncio.gather" in text
+
+
+def test_cold_open_no_sessions_omits_recall_line() -> None:
+    nodes, _ = _snapshot_from_seed_style()  # seed-style fixture has no Session nodes
+    cold = _derive(nodes, [])
+    assert cold.last_session_summary is None
+    assert "You were last here" not in render_cold_open(cold)

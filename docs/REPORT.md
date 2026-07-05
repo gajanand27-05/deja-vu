@@ -58,13 +58,14 @@ Every step was verified against a live cognee/Ladybug graph. Confirmations print
 
 ## 6 · Testing
 
-`pytest tests/` — **27 tests, all pass**. Coverage highlights:
+`pytest tests/` — **42 tests, all pass**. Coverage highlights:
 
 - `test_schema_and_seed.py` (5): schema split, exact seed weights, no inferred edges in seed, every explicit rel type actually used, deterministic learner id.
-- `test_cold_open.py` (5): cold open picks mastered-over-deprecated, picks lowest-weight-unresolved-Mistake, reads current_focus from Learner, mentions all three topics, empty-graph fallback.
-- `test_chat.py` (2): find_by_prop, used-node-ids includes evidence (no global counter).
+- `test_cold_open.py` (7): cold open picks mastered-over-deprecated, picks lowest-weight-unresolved-Mistake, reads current_focus from Learner, mentions all three topics, empty-graph fallback, recalls the most-recent persisted Session (cross-restart proof), omits the recall line when no sessions exist.
+- `test_chat.py` (5): find_by_prop, used-node-ids includes evidence (no global counter), and the with-memory-vs-no-memory composer (cross-topic answer names the other topic, the baseline can't; unknown topic → None; no-evidence answer equals the baseline).
 - `test_memify.py` (7): cross-topic linkage rule, same-topic rejected, different failure_class rejected, idempotence, exact seed shape produces one family edge, RELATED_TO co-occurrence, RELATED_TO idempotence.
 - `test_forget.py` (6): mastered+stale decays, in-progress doesn't decay when stale, recent doesn't decay, already-decaying skipped (idempotent), --topic force decay, deprecated Concept pruned with its orphan Skill.
+- `test_llm_reword.py` (10): dummy-key/empty/failed-call fallbacks, FACTS-block construction, allowed-concept set, and the adversarial hallucination-safety checks (foreign-concept output rejected → templated served).
 - `test_smoke.py` (2): version, help lists all planned commands.
 
 ## 7 · File layout (shipped)

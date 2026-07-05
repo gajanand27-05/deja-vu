@@ -13,9 +13,10 @@ Query (spec §5):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
-from deja.models.graph import Learner, Mistake, Rel, Skill, SkillStatus
+from deja.models.graph import Learner, Mistake, Rel, Session, Skill, SkillStatus
 from deja.store import graph_store
 
 
@@ -28,6 +29,10 @@ class ColdOpen:
     stumbled_topic: str | None      # (b) concept name
     stumbled_mistake: str | None    # (b) mistake description
     current_focus: str | None       # (c)
+    # (d) the most recent persisted Session — proves memory survives a restart.
+    # This is the hackathon's whole thesis: no context hangover across runs.
+    last_session_summary: str | None = None
+    last_session_when: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -36,6 +41,8 @@ class ColdOpen:
             "stumbled_topic": self.stumbled_topic,
             "stumbled_mistake": self.stumbled_mistake,
             "current_focus": self.current_focus,
+            "last_session_summary": self.last_session_summary,
+            "last_session_when": self.last_session_when,
         }
 
 
@@ -49,7 +56,7 @@ async def build_cold_open() -> ColdOpen:
     return _derive(nodes, edges)
 
 
-def _derive(nodes: list[dict], edges: list[dict]) -> ColdOpen:
+def _derive(nodes: list[dict], edges: list[dict], now: datetime | None = None) -> ColdOpen:
     """Pure-Python derivation so tests can drive it with fixtures.
 
     Split from ``build_cold_open`` so the recall logic is testable without
@@ -110,13 +117,57 @@ def _derive(nodes: list[dict], edges: list[dict]) -> ColdOpen:
     if weighted_candidates:
         _, stumbled_topic, stumbled_mistake = weighted_candidates[0]
 
+    # (d) most recent Session — the proof memory persists across process restarts.
+    last_summary, last_when = _latest_session(
+        by_type.get(Session.__name__, []), now or datetime.now(timezone.utc)
+    )
+
     return ColdOpen(
         learner_name=learner_name,
         mastered_topic=mastered_topic,
         stumbled_topic=stumbled_topic,
         stumbled_mistake=stumbled_mistake,
         current_focus=current_focus,
+        last_session_summary=last_summary,
+        last_session_when=last_when,
     )
+
+
+def _latest_session(
+    sessions: list[dict], now: datetime
+) -> tuple[str | None, str | None]:
+    """Return (summary, human-readable-when) for the newest Session, or (None, None).
+
+    Newest by ``timestamp_iso``. The summary is trimmed for a one-line greeting.
+    """
+    dated: list[tuple[datetime, dict]] = []
+    for s in sessions:
+        iso = _prop(s, "timestamp_iso")
+        try:
+            dated.append((datetime.fromisoformat(iso), s))
+        except (TypeError, ValueError):
+            continue
+    if not dated:
+        return None, None
+    when_dt, newest = max(dated, key=lambda pair: pair[0])
+    summary = (_prop(newest, "summary") or "").strip()
+    if len(summary) > 90:
+        summary = summary[:87].rstrip() + "…"
+    return (summary or None), _relative_when(when_dt, now)
+
+
+def _relative_when(then: datetime, now: datetime) -> str:
+    """Coarse, demo-friendly relative time: 'just now' / 'N hours ago' / 'N days ago'."""
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    secs = (now - then).total_seconds()
+    if secs < 3600:
+        return "just now"
+    if secs < 86400:
+        hours = int(secs // 3600)
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    days = int(secs // 86400)
+    return f"{days} day{'s' if days != 1 else ''} ago"
 
 
 def _prop(node: dict | None, key: str, default: Any = None) -> Any:
@@ -150,6 +201,9 @@ def render_cold_open(cold: ColdOpen) -> str:
         return f"Hello. I don't know you yet — try `deja seed` to load the demo memory."
 
     lines: list[str] = [f"Welcome back, {cold.learner_name}."]
+    if cold.last_session_summary:
+        when = f" {cold.last_session_when}" if cold.last_session_when else ""
+        lines.append(f"You were last here{when} — {cold.last_session_summary}")
     if cold.mastered_topic and cold.stumbled_topic:
         lines.append(
             f"Last time you nailed {cold.mastered_topic} but stumbled on "

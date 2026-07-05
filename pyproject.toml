@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "cognee>=0.1.30",
+    "cognee>=1.2,<2",
     "typer>=0.12",
     "rich>=13.7",
     "pydantic>=2.7",
