@@ -8,6 +8,14 @@ Déjà is a CLI coding mentor built on **Cognee 1.2.2**. It keeps a persistent, 
 
 Fully local — SQLite + LanceDB + Kuzu, no servers. Python. **42/42 tests passing.**
 
+### Highlights
+
+- **`memify` — the verb nobody demos.** The graph infers a *new* cross-topic link nobody wrote (two bugs from different topics recognized as the same failure family). Memory that gets **smarter**, not just bigger.
+- **No context hangover, across restarts.** `deja start` recalls your last real session after you kill the process and reopen — the memory lives in the graph on disk, not a chat log.
+- **With-memory vs. without, side by side.** `deja compare` answers the same question twice — only the graph-backed answer reaches across your history.
+- **Grounded in Cognee's real APIs.** `deja ask` routes recall through Cognee's own **`cognee.search`**; thumbs-up additionally fires Cognee's **`SearchType.FEEDBACK`** on the exact interaction. Optional `--cloud` runs recall on Cognee Cloud.
+- **Provably graph-driven.** The cross-topic link falls out of `used_node_ids` with *no LLM in the loop* — traceable, not asserted.
+
 ---
 
 ## Why this is a real memory system, not "RAG with extra steps"
