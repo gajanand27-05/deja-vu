@@ -30,6 +30,7 @@ from deja.models.graph import (
     Skill,
 )
 from deja.store import graph_store
+from deja.store.search import save_interaction, send_feedback
 
 
 IMPROVE_WEIGHT_STEP = 0.1
@@ -75,6 +76,11 @@ class CoachingTurn:
     message: str = ""
     session_id: str | None = None
     fix_hint: str = ""
+    # Cognee's own feedback loop (best-effort, additive to the local reweight):
+    # the SearchType this turn was recorded under, and whether thumbs-up reached
+    # SearchType.FEEDBACK. Both stay None/False if the installed cognee lacks it.
+    cognee_interaction: str | None = None
+    cognee_feedback_sent: bool = False
 
 
 async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
@@ -127,6 +133,10 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
             )
     await graph_store.add_edges(edges)
 
+    # Also record this turn through Cognee's OWN pipeline so a later thumbs-up can
+    # reinforce it via SearchType.FEEDBACK. Best-effort: None if unsupported.
+    cognee_interaction = await save_interaction(user_question or f"coaching on {topic}")
+
     used = []
     if skill:
         used.append(str(skill["id"]))
@@ -145,6 +155,7 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
         message=composed.with_message,
         session_id=str(session.id),
         fix_hint=fix_hint,
+        cognee_interaction=cognee_interaction,
     )
 
 
@@ -306,6 +317,14 @@ async def apply_feedback(turn: CoachingTurn, thumbs: Feedback) -> dict[str, floa
     if turn.session_id:
         await graph_store.update_node_properties(
             turn.session_id, {"feedback": thumbs.value}
+        )
+
+    # Cognee's OWN improve loop: reinforce the exact interaction that produced
+    # this answer via SearchType.FEEDBACK — additive to the local reweight above,
+    # and the real API behind the "reinforce the nodes that helped" story.
+    if thumbs is Feedback.UP and turn.cognee_interaction:
+        turn.cognee_feedback_sent = await send_feedback(
+            "Helpful — the cross-topic connection was correct.", last_k=1
         )
 
     return changes

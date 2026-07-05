@@ -21,8 +21,8 @@ Most agent-memory demos use two verbs: *store* and *retrieve*. Déjà uses **all
 | Verb       | Command                       | What it does here |
 |------------|-------------------------------|-------------------|
 | `remember` | `deja seed`, `deja chat`      | Writes typed DataPoint nodes (`Learner`, `Concept`, `Skill`, `Session`, `Mistake`) + explicit edges into the graph |
-| `recall`   | `deja start`, `deja chat`     | Cold open derives three lines from graph state (not hardcoded); coaching pulls cross-topic mistake evidence via graph traversal |
-| `improve`  | `deja chat --feedback up`     | Re-weights `mastery_weight` + `confidence` on the *exact* nodes that produced the answer — not a global counter |
+| `recall`   | `deja start`, `deja chat`, `deja ask` | Cold open derives three lines from graph state (not hardcoded) *and* recalls your last session across restarts; coaching pulls cross-topic mistake evidence; `deja ask "<q>"` runs a real `cognee.search` over the graph |
+| `improve`  | `deja chat --feedback up`     | Re-weights `mastery_weight` + `confidence` on the *exact* nodes that produced the answer (not a global counter), and additively fires Cognee's own `SearchType.FEEDBACK` on that interaction |
 | `memify`   | `deja memify`                 | Infers and adds `Mistake —SAME_FAMILY_AS→ Mistake` across topics with a shared failure class; re-weights skills; idempotent |
 | `forget`   | `deja forget`                 | Soft-decays stale mastered skills out of active coaching; hard-prunes deprecated concepts and orphaned nodes |
 

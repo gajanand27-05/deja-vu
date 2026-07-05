@@ -14,11 +14,16 @@ and, if needed, tighten ``_SEARCH_TYPE_PATHS`` / ``_call_search`` here.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Best-effort Cognee calls are timeout-guarded so a slow/hanging cloud or LLM
+# round-trip can never stall the (templated, deterministic) demo path.
+_BEST_EFFORT_TIMEOUT_S = 8.0
 
 # Where SearchType lives has moved across cognee versions — try known homes.
 _SEARCH_TYPE_PATHS = (
@@ -106,3 +111,65 @@ async def search_memory(
         if res:
             return SearchOutcome(name, list(res), attempted)
     return SearchOutcome(None, [], attempted, last_error)
+
+
+async def save_interaction(query_text: str) -> str | None:
+    """Best-effort: run a graph-backed ``cognee.search`` with ``save_interaction=True``.
+
+    This is what gives Cognee's FEEDBACK loop something to attach a score to
+    later (see ``send_feedback``). Timeout-guarded and swallows every failure —
+    the templated ``deja chat`` answer is unaffected either way. Returns the
+    SearchType name it recorded under, or None.
+    """
+    try:
+        import cognee
+    except ImportError:
+        return None
+    search_type = _resolve_search_type_enum()
+    if search_type is None:
+        return None
+
+    for name in ("INSIGHTS", "GRAPH_COMPLETION"):
+        st = getattr(search_type, name, None)
+        if st is None:
+            continue
+        try:
+            await asyncio.wait_for(
+                cognee.search(query_type=st, query_text=query_text, save_interaction=True),
+                timeout=_BEST_EFFORT_TIMEOUT_S,
+            )
+            return name
+        except TypeError:
+            # This cognee version's search() doesn't take save_interaction — the
+            # FEEDBACK loop isn't available; give up quietly.
+            return None
+        except Exception as exc:  # noqa: BLE001 — best-effort, never raise
+            logger.warning("save_interaction %s failed: %s", name, exc)
+            continue
+    return None
+
+
+async def send_feedback(note: str, *, last_k: int = 1) -> bool:
+    """Best-effort: reinforce the last interaction via ``SearchType.FEEDBACK``.
+
+    Cognee ties the feedback score onto the graph elements that produced the
+    last answer — the real API behind ``deja chat``'s "reinforce the exact
+    nodes that helped" story. Timeout-guarded; returns True iff the call ran.
+    """
+    try:
+        import cognee
+    except ImportError:
+        return False
+    search_type = _resolve_search_type_enum()
+    fb = getattr(search_type, "FEEDBACK", None) if search_type else None
+    if fb is None:
+        return False
+    try:
+        await asyncio.wait_for(
+            cognee.search(query_type=fb, query_text=note, last_k=last_k),
+            timeout=_BEST_EFFORT_TIMEOUT_S,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 — best-effort, never raise
+        logger.warning("send_feedback failed: %s", exc)
+        return False
