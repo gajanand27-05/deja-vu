@@ -63,6 +63,8 @@ Pause for a beat after the greeting lands.
 
 ## Scene 2 — live coaching + feedback (1:00–2:00)
 
+**Record on the templated path.** It is the demo default and it is the proof:
+
 ```bash
 deja chat --topic "async error handling" \
           --question "My asyncio.gather tasks keep mutating the same list" \
@@ -78,6 +80,12 @@ Say:
 Say (after the thumbs-up recorded):
 
 > "That thumbs-up isn't a rating for a leaderboard. It feeds Cognee's improve API — it re-weights the exact graph nodes that produced this answer. Good explanations get stronger."
+
+### If a judge asks "how do I know the LLM didn't just guess the link?"
+
+This is your credibility flex. Rerun the same turn with `--llm` OFF (the default), then point at `used_node_ids` on the returned `CoachingTurn` — the cross-topic link falls out with **no LLM in the loop**. The intelligence is in the memory, not the model.
+
+The opposite path exists too: `deja chat --llm ...` reworks the same graph facts through an LLM (constrained to only rephrase the pre-selected FACTS; any output that names a foreign Concept is rejected by the validator and the templated answer is used instead). It's for the polished-video read; it is **not** the recorded-demo path.
 
 ## Scene 3 — memify (2:00–3:00) · the headline
 

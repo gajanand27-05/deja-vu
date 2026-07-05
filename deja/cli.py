@@ -135,10 +135,20 @@ def chat(
         "-f",
         help="Simulated thumbs feedback for this turn: up | down | none.",
     ),
+    llm: bool = typer.Option(
+        False,
+        "--llm",
+        help=(
+            "Opt-in surface polish: reword the templated response via LLM, "
+            "constrained to only rephrase the FACTS derived from used_node_ids. "
+            "Falls back to templated on any failure or hallucination. "
+            "Templated is the demo's default and the recorded-demo path."
+        ),
+    ),
 ) -> None:
     """Coaching loop with thumbs-up feedback (Scene 2)."""
     _bootstrap()
-    from deja.commands.chat_cmd import apply_feedback, coach_on_topic
+    from deja.commands.chat_cmd import apply_feedback, coach_on_topic, maybe_llm_reword
     from deja.models.graph import Feedback
 
     settings = load_settings()
@@ -154,11 +164,25 @@ def chat(
     with console.status("[cyan]coaching…[/cyan]", spinner="dots"):
         turn = asyncio.run(_run())
 
+    reword_note = None
+    if llm:
+        with console.status("[cyan]rewording via LLM (bounded by used_node_ids)…[/cyan]", spinner="dots"):
+            reword_result = asyncio.run(
+                maybe_llm_reword(turn, settings.llm_api_key)
+            )
+        turn.message = reword_result.text
+        reword_note = (
+            "[green]worded by LLM ✓[/green] (validator passed)"
+            if reword_result.used_llm
+            else f"[yellow]templated[/yellow] ({reword_result.reason})"
+        )
+
     console.print(
         Panel(
             turn.message,
             title=f"deja — coaching on {turn.topic_concept}",
             border_style="cyan",
+            subtitle=reword_note,
         )
     )
 

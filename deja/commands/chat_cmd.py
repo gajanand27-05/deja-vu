@@ -44,14 +44,20 @@ class CoachingTurn:
     ``used_node_ids`` is the closure of nodes that produced the answer — this
     is what a thumbs-up must reinforce (spec §7). It includes the topic Skill
     and every Mistake we pulled in as cross-topic evidence.
+
+    ``related`` is the (concept_ref, description) pair list for each Mistake
+    pulled as evidence — the raw material for the FACTS block the ``--llm``
+    reword mode is constrained to.
     """
 
     topic_concept: str
     topic_skill_id: str | None
     related_mistake_ids: list[str] = field(default_factory=list)
+    related: list[tuple[str, str]] = field(default_factory=list)
     used_node_ids: list[str] = field(default_factory=list)
     message: str = ""
     session_id: str | None = None
+    fix_hint: str = ""
 
 
 async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
@@ -94,6 +100,7 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
     # Compose the response (deterministic prose).
     # ------------------------------------------------------------------
     lines: list[str] = []
+    fix_hint = ""
     if related:
         rm = related[0]
         rm_concept = _p(rm, "concept_ref")
@@ -105,12 +112,12 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
             f"Both are {rm_class}: state you thought was fresh is actually "
             f"shared across calls or tasks."
         )
-        lines.append(
-            f"Fix pattern: never let a mutable object outlive one logical "
-            f"scope. For {topic}, that means either (a) create a new "
-            f"collection per task, or (b) guard mutations with an "
-            f"``asyncio.Lock`` when sharing is deliberate."
+        fix_hint = (
+            f"never let a mutable object outlive one logical scope — for "
+            f"{topic}, either create a new collection per task, or guard "
+            f"mutations with an ``asyncio.Lock`` when sharing is deliberate"
         )
+        lines.append(f"Fix pattern: {fix_hint}.")
     else:
         lines.append(
             f"Let's work through the {topic} question. Tell me the exact error "
@@ -156,10 +163,50 @@ async def coach_on_topic(topic: str, user_question: str) -> CoachingTurn:
         topic_concept=topic,
         topic_skill_id=str(skill["id"]) if skill else None,
         related_mistake_ids=[str(m["id"]) for m in related],
+        related=[
+            (_p(m, "concept_ref") or "", _p(m, "description") or "")
+            for m in related
+        ],
         used_node_ids=used,
         message="\n\n".join(lines),
         session_id=str(session.id),
+        fix_hint=fix_hint,
     )
+
+
+async def maybe_llm_reword(
+    turn: CoachingTurn, api_key: str | None, *, model: str | None = None
+) -> "RewordResult":
+    """Opt-in surface polish; templated stays the default and the truth.
+
+    Called only when the CLI passes ``--llm``. The reword module's contract
+    guarantees any failure or hallucination falls back to the templated
+    draft — never raises, never lets an untrusted concept name through.
+
+    ``used_node_ids`` and ``related_mistake_ids`` on the turn are untouched
+    by this call. The graph-reasoning proof is unchanged whether or not
+    the reword succeeds.
+    """
+    from deja.commands.llm_reword import DEFAULT_MODEL, reword
+
+    all_concepts = await _all_graph_concept_names()
+    return reword(
+        templated_draft=turn.message,
+        topic_concept=turn.topic_concept,
+        related=turn.related,
+        fix_hint=turn.fix_hint,
+        all_graph_concepts=all_concepts,
+        api_key=api_key,
+        model=model or DEFAULT_MODEL,
+    )
+
+
+async def _all_graph_concept_names() -> list[str]:
+    by_type, _ = await graph_store.get_snapshot_indexes()
+    return [
+        (n.get("properties", {}).get("name") or "")
+        for n in by_type.get(Concept.__name__, [])
+    ]
 
 
 async def apply_feedback(turn: CoachingTurn, thumbs: Feedback) -> dict[str, float]:

@@ -114,7 +114,7 @@ deja-vu/
 
 ## 8 · Known limitations, risks, and non-goals
 
-- **Prose is deterministic, not LLM-generated.** The coaching response is templated from graph facts so the demo rehearses cleanly. Cognee's `LLM_API_KEY` is still needed for the DB stack to boot, but no LLM call is made per turn. This trades "the mentor is an LLM" for "the mentor's cross-topic reach is provably graph-driven" — a fair trade for a hackathon judged on Cognee integration depth.
+- **Two coaching modes, templated is the default.** The default `deja chat` builds a deterministic response from graph facts — that is the demo's *credibility flex*: the cross-topic link falls out of `used_node_ids` with no LLM in the loop, so the "graph reasoning, not LLM guessing" story is *provable*, not asserted. `deja chat --llm` is an opt-in surface polish: it reworks the same graph facts through an LLM constrained to only rephrase a pre-selected FACTS block, with a post-hoc validator that rejects any output naming a Concept the graph did not authorise. If the validator rejects, or the LLM call fails, the templated draft is served instead — the demo path is uninterruptible. See `deja/commands/llm_reword.py` and the seven hallucination-safety tests in `tests/test_llm_reword.py`.
 - **Single-user demo.** Multi-user access control is turned off (`ENABLE_BACKEND_ACCESS_CONTROL=false`). Not a limitation of Cognee — a scoping choice.
 - **Ladybug single-writer.** Solved for the demo via the snapshot-file pattern. Migrating to Postgres/Neo4j would remove that constraint if scaled beyond one learner.
 - **Playwright capture is optional.** Requires the `[capture]` extra plus `playwright install chromium` (~150 MB). The demo does not depend on it — it's the Scene 3 fallback.
